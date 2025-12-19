@@ -2,9 +2,9 @@ import os from "os";
 import dotenv from "dotenv";
 import cors from "cors";
 import express from "express";
+import bodyParser from "body-parser";
 import cookieParser from "cookie-parser";
 import DB_Connection from "./src/Db/Db.js";
-
 import UserRouter from "./src/Routes/UserRoutes/UserRoutes.js";
 import TyreRouter from "./src/Routes/TyreRoutes/TyreRoutes.js";
 import FooterRouter from "./src/Routes/FooterRoutes/FooterRoutes.js";
@@ -18,81 +18,74 @@ import GrowthRouter from "./src/Routes/GrowthRoutes/GrowthRoutes.js";
 import FaqRouter from "./src/Routes/FaqRoutes/FaqRoutes.js";
 import EnquiryRouter from "./src/Routes/EnquiryRoutes/EnquiryRoutes.js";
 import AboutRouter from "./src/Routes/AboutRoutes/AboutRoutes.js";
+import { ShopByVehicle } from "./src/Model/Shopbyvehicle/ShopbyVehicle.js";
 import ShopbyVehiclerouter from "./src/Routes/ShopbyVehicle/ShopbyVehicle.js";
 import ReviewRouter from "./src/Routes/ReviewRoutes/ReviewRoutes.js";
 import ContactRouter from "./src/Routes/Contact/Contact.js";
 
+// Env Set up
 dotenv.config();
 
+// Initialize the express and port declaration
 const app = express();
 const PORT = process.env.PORT || 7000;
 
-/* --------------------------------------------------
-   TRUST PROXY (CRITICAL FOR RENDER + SECURE COOKIES)
--------------------------------------------------- */
-app.set("trust proxy", 1);
-
-/* --------------------------------------------------
-   LOCAL IP (DEV ONLY)
--------------------------------------------------- */
+// Extract the local IP
 function getLocalIP() {
-  const nets = os.networkInterfaces();
-  for (const key in nets) {
-    for (const net of nets[key]) {
-      if (net.family === "IPv4" && !net.internal) return net.address;
+  const net = os.networkInterfaces();
+  for (const key in net) {
+    for (const iface of net[key]) {
+      if (iface.family === "IPv4" && !iface.internal) return iface.address;
     }
   }
   return "127.0.0.1";
 }
+
 const localIP = getLocalIP();
 
-/* --------------------------------------------------
-   ALLOWED ORIGINS (CLEAN & SAFE)
--------------------------------------------------- */
+// ============================================
+// ✅ CORS CONFIGURATION
+// ============================================
 const allowedOrigins = [
+  // 1. Local Development
   "http://localhost:5173",
   "http://localhost:5174",
   `http://${localIP}:5173`,
   `http://${localIP}:5174`,
-  "https://indoconnect.co.in",
-  "https://www.indoconnect.co.in",
-  process.env.FRONTEND_URL,
-].filter(Boolean); // 🔥 REMOVE undefined
 
-/* --------------------------------------------------
-   CORS CONFIG (PRODUCTION SAFE)
--------------------------------------------------- */
+  // 2. Production Domain (Your Live Site)
+  "https://indoconnect.co.in",
+  "https://www.indoconnect.co.in", 
+
+  // 3. Environment Variable Fallback
+  process.env.FRONTEND_URL 
+];
+
+// Cors setup 
 app.use(
   cors({
-    origin: (origin, callback) => {
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps, curl, or Postman)
       if (!origin) return callback(null, true);
-
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
+      
+      // Check if origin is allowed
+      if (allowedOrigins.includes(origin) || allowedOrigins.includes("*")) {
+        callback(null, true);
+      } else {
+        console.log("🚫 CORS Blocked:", origin);
+        callback(new Error("CORS Blocked: " + origin));
       }
-
-      console.error("🚫 CORS BLOCKED:", origin);
-      callback(new Error("CORS Blocked"));
     },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true, // ✅ CRITICAL: Allows cookies/sessions for indoconnect.co.in
   })
 );
 
-// Explicit preflight support
-app.options("*", cors());
-
-/* --------------------------------------------------
-   MIDDLEWARES
--------------------------------------------------- */
+// Middlewares
 app.use(cookieParser());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
 
-/* --------------------------------------------------
-   ROUTES
--------------------------------------------------- */
+// Api End points
 app.use("/api/v1/user", UserRouter);
 app.use("/api/v1/tyre", TyreRouter);
 app.use("/api/v1/trustedstory", TrustedStoryrouter);
@@ -108,21 +101,17 @@ app.use("/api/v1/enquiry", EnquiryRouter);
 app.use("/api/v1/about", AboutRouter);
 app.use("/api/v1/sbv", ShopbyVehiclerouter);
 app.use("/api/v1/review", ReviewRouter);
-app.use("/api/v1/contact", ContactRouter);
+app.use('/api/v1/contact', ContactRouter);
 
-/* --------------------------------------------------
-   DB CONNECTION
--------------------------------------------------- */
 console.log("DB URI:", process.env.DB_URI ? "Provided" : "Missing");
-console.log("DB Name:", process.env.DB_NAME || "Missing");
+console.log("DB Name:", process.env.DB_NAME);
 
+// Db connection setup 
 DB_Connection(process.env.DB_URI, process.env.DB_NAME)
   .then(() => {
     app.listen(PORT, "0.0.0.0", () => {
-      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(` Local:    http://localhost:${PORT}`);
+      console.log(` Network:  http://${localIP}:${PORT}`);
     });
   })
-  .catch((err) => {
-    console.error("❌ Database Connection Failed:", err);
-    process.exit(1);
-  });
+  .catch((err) => console.error(" Database Connection Failed:", err));
