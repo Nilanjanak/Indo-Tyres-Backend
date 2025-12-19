@@ -16,31 +16,36 @@ import { Testimonial } from "../../Model/Testimonial/Testimonial.js";
 import { TrustedStory } from "../../Model/TrustedStory/TrustedStory.js";
 import { Tyre } from "../../Model/Tyres/Tyres.js";
 
-const isProd = process.env.NODE_ENV === "production";
-
-/* ======================================================
-   REGISTER USER
-====================================================== */
+// ============================
+// Register a new user
+// ============================
 export const registerUser = async (req, res) => {
   try {
-    let { username, email, password } = req.body;
-    email = email.toLowerCase().trim();
+    const { username, email, password } = req.body;
 
+    // Check if user already exists
     const existing = await User.findOne({ email });
     if (existing) {
       return res.status(400).json({ error: "User already exists" });
     }
 
-    const user = new User({ username, email, password });
+    // Validate role (since it's enum in schema)
+
+    const user = new User({
+      username,
+      email,
+      password,
+ 
+    });
+
     await user.save();
 
     res.status(201).json({
-      success: true,
       message: "User registered successfully",
       user: {
         id: user._id,
         email: user.email,
-        username: user.username,
+        username:user.username
       },
     });
   } catch (err) {
@@ -48,104 +53,141 @@ export const registerUser = async (req, res) => {
   }
 };
 
-/* ======================================================
-   LOGIN USER (PRODUCTION SAFE)
-====================================================== */
+// ============================
+// Login user
+// ============================
 export const loginUser = async (req, res) => {
   try {
-    let { email, password } = req.body;
-    email = email.toLowerCase().trim();
+    const { email, password } = req.body;
 
     const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(400).json({ error: "Invalid credentials" });
-    }
+    if (!user) return res.status(400).json({ error: "Invalid credentials" });
 
     const isMatch = await user.comparePassword(password);
-    if (!isMatch) {
-      return res.status(400).json({ error: "Invalid credentials" });
-    }
+    if (!isMatch) return res.status(400).json({ error: "Invalid credentials" });
 
     const token = user.generateAccessToken();
 
     user.lastLoginAt = new Date();
     await user.save();
 
-    // 🔥 Correct cross-domain cookie
+       const isProd = process.env.NODE_ENV === "production";
+
     res.cookie("AccessToken", token, {
       httpOnly: true,
-      secure: isProd,                  // true in production
-      sameSite: isProd ? "none" : "lax",
+      secure: isProd,            // secure=true in production (HTTPS)
+      sameSite: isProd ? "none" : "lax", // none in prod for cross-site requests
       path: "/",
-      maxAge: 24 * 60 * 60 * 1000,      // 1 day
+      maxAge: 24 * 60 * 60 * 1000,
     });
 
-    res.status(200).json({
-      success: true,
+    res.json({
       message: "Login successful",
       user: {
         id: user._id,
         email: user.email,
+        
       },
+      token, // Optional: if you want token in response
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
-/* ======================================================
-   LOGOUT USER (MATCHES LOGIN COOKIE)
-====================================================== */
+// ============================
+// Logout user
+// ============================
 export const logoutUser = (req, res) => {
   try {
     res.clearCookie("AccessToken", {
       httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? "none" : "lax",
-      path: "/",
+      secure: false,
+      sameSite: "Lax",
     });
-
-    res.status(200).json({
-      success: true,
-      message: "User logged out successfully",
-    });
+    res.json({ message: "User logged out successfully" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
-/* ======================================================
-   CURRENT AUTHENTICATED USER
-====================================================== */
+// ============================
+// Get current authenticated user
+// ============================
 export const getCurrentUser = async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select("-password");
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-    res.status(200).json(user);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    res.json(user);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
-/* ======================================================
-   UPDATE SELF
-====================================================== */
+// ============================
+// Get all users (Admin only)
+// ============================
+export const getUsers = async (req, res) => {
+  try {
+    const users = await User.find().select("-password");
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// ============================
+// Get user by ID
+// ============================
+export const getUserById = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select("-password");
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// ============================
+// Delete user
+// ============================
+export const deleteUser = async (req, res) => {
+  try {
+    const user = await User.findByIdAndDelete(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    res.json({ message: "User deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// ============================
+// Update self (user profile)
+// ============================
 export const updateSelf = async (req, res) => {
   try {
-    const allowedFields = ["username", "email", "password"];
+    const allowedFields = ["username","email",];
     const updates = {};
 
     allowedFields.forEach((key) => {
       if (req.body[key]) updates[key] = req.body[key];
     });
 
-    if (updates.email) {
-      updates.email = updates.email.toLowerCase().trim();
-    }
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
 
+    // Check new password not same as old
     if (updates.password) {
+      const isSame = await user.comparePassword(updates.password);
+      if (isSame) {
+        return res.status(400).json({
+          error: "New password cannot be the same as the old password",
+        });
+      }
       const saltRounds = Number(process.env.SALT_ROUNDS) || 10;
       updates.password = await bcrypt.hash(updates.password, saltRounds);
     }
@@ -156,21 +198,17 @@ export const updateSelf = async (req, res) => {
       { new: true, runValidators: true }
     ).select("-password");
 
-    res.status(200).json({
-      success: true,
-      message: "Profile updated successfully",
-      user: updatedUser,
-    });
+    res.json({ message: "Profile updated successfully", user: updatedUser });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
-/* ======================================================
-   DASHBOARD DATA
-====================================================== */
+
+
 export const DashboardData = async (req, res) => {
   try {
+    // Fetch all data in parallel
     const [
       about,
       enquiry,
@@ -205,6 +243,7 @@ export const DashboardData = async (req, res) => {
       Tyre.find(),
     ]);
 
+    // Send the combined response
     res.status(200).json({
       success: true,
       message: "Dashboard data fetched successfully",
@@ -227,6 +266,7 @@ export const DashboardData = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error("❌ Error fetching dashboard data:", error.message);
     res.status(500).json({
       success: false,
       message: "Failed to fetch dashboard data",
