@@ -71,10 +71,13 @@ export const loginUser = async (req, res) => {
     user.lastLoginAt = new Date();
     await user.save();
 
+       const isProd = process.env.NODE_ENV === "production";
+
     res.cookie("AccessToken", token, {
       httpOnly: true,
-      secure: false, // set true in production
-      sameSite: "Lax",
+      secure: isProd,            // secure=true in production (HTTPS)
+      sameSite: isProd ? "none" : "lax", // none in prod for cross-site requests
+      path: "/",
       maxAge: 24 * 60 * 60 * 1000,
     });
 
