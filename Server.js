@@ -2,9 +2,12 @@ import os from "os";
 import dotenv from "dotenv";
 import cors from "cors";
 import express from "express";
-import bodyParser from "body-parser";
 import cookieParser from "cookie-parser";
+import path from "path";
+import { fileURLToPath } from "url";
+
 import DB_Connection from "./src/Db/Db.js";
+
 import UserRouter from "./src/Routes/UserRoutes/UserRoutes.js";
 import TyreRouter from "./src/Routes/TyreRoutes/TyreRoutes.js";
 import FooterRouter from "./src/Routes/FooterRoutes/FooterRoutes.js";
@@ -18,19 +21,30 @@ import GrowthRouter from "./src/Routes/GrowthRoutes/GrowthRoutes.js";
 import FaqRouter from "./src/Routes/FaqRoutes/FaqRoutes.js";
 import EnquiryRouter from "./src/Routes/EnquiryRoutes/EnquiryRoutes.js";
 import AboutRouter from "./src/Routes/AboutRoutes/AboutRoutes.js";
-import { ShopByVehicle } from "./src/Model/Shopbyvehicle/ShopbyVehicle.js";
 import ShopbyVehiclerouter from "./src/Routes/ShopbyVehicle/ShopbyVehicle.js";
 import ReviewRouter from "./src/Routes/ReviewRoutes/ReviewRoutes.js";
 import ContactRouter from "./src/Routes/Contact/Contact.js";
 
-// Env Set up
+// --------------------------------------------------
+// ENV SETUP
+// --------------------------------------------------
 dotenv.config();
 
-// Initialize the express and port declaration
 const app = express();
 const PORT = process.env.PORT || 7000;
 
-// Extract the local IP
+// 🔥 REQUIRED for Render / HTTPS cookies
+app.set("trust proxy", 1);
+
+// --------------------------------------------------
+// PATH UTILS (ESM SAFE)
+// --------------------------------------------------
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// --------------------------------------------------
+// LOCAL IP (DEV ONLY)
+// --------------------------------------------------
 function getLocalIP() {
   const net = os.networkInterfaces();
   for (const key in net) {
@@ -43,49 +57,66 @@ function getLocalIP() {
 
 const localIP = getLocalIP();
 
-// ============================================
-// ✅ CORS CONFIGURATION
-// ============================================
+// --------------------------------------------------
+// CORS CONFIGURATION (FIXED)
+// --------------------------------------------------
 const allowedOrigins = [
-  // 1. Local Development
+  // Local
   "http://localhost:5173",
   "http://localhost:5174",
   `http://${localIP}:5173`,
   `http://${localIP}:5174`,
 
-  // 2. Production Domain (Your Live Site)
+  // Production
   "https://indoconnect.co.in",
-  "https://www.indoconnect.co.in", 
+  "https://www.indoconnect.co.in",
 
-  // 3. Environment Variable Fallback
-  process.env.FRONTEND_URL 
-];
+  // Env fallback
+  process.env.FRONTEND_URL,
+].filter(Boolean); // 🔥 remove undefined
 
-// Cors setup 
 app.use(
   cors({
-    origin: function (origin, callback) {
-      // Allow requests with no origin (like mobile apps, curl, or Postman)
+    origin: (origin, callback) => {
+      // Allow Postman / server-to-server
       if (!origin) return callback(null, true);
-      
-      // Check if origin is allowed
-      if (allowedOrigins.includes(origin) || allowedOrigins.includes("*")) {
-        callback(null, true);
-      } else {
-        console.log("🚫 CORS Blocked:", origin);
-        callback(new Error("CORS Blocked: " + origin));
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
       }
+
+      console.error("🚫 CORS BLOCKED:", origin);
+      callback(new Error("CORS Blocked"));
     },
-    credentials: true, // ✅ CRITICAL: Allows cookies/sessions for indoconnect.co.in
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-// Middlewares
-app.use(cookieParser());
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+// Explicit preflight support
+app.options("*", cors());
 
-// Api End points
+// --------------------------------------------------
+// MIDDLEWARES
+// --------------------------------------------------
+app.use(cookieParser());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// --------------------------------------------------
+// 🔥 STATIC FILES (IMAGES)
+// --------------------------------------------------
+// All images must be accessed via:
+// https://indo-tyres-backend.onrender.com/uploads/<filename>
+app.use(
+  "/uploads",
+  express.static(path.join(__dirname, "uploads"))
+);
+
+// --------------------------------------------------
+// API ROUTES
+// --------------------------------------------------
 app.use("/api/v1/user", UserRouter);
 app.use("/api/v1/tyre", TyreRouter);
 app.use("/api/v1/trustedstory", TrustedStoryrouter);
@@ -101,17 +132,21 @@ app.use("/api/v1/enquiry", EnquiryRouter);
 app.use("/api/v1/about", AboutRouter);
 app.use("/api/v1/sbv", ShopbyVehiclerouter);
 app.use("/api/v1/review", ReviewRouter);
-app.use('/api/v1/contact', ContactRouter);
+app.use("/api/v1/contact", ContactRouter);
 
+// --------------------------------------------------
+// DB CONNECTION + SERVER START
+// --------------------------------------------------
 console.log("DB URI:", process.env.DB_URI ? "Provided" : "Missing");
-console.log("DB Name:", process.env.DB_NAME);
+console.log("DB Name:", process.env.DB_NAME || "Missing");
 
-// Db connection setup 
 DB_Connection(process.env.DB_URI, process.env.DB_NAME)
   .then(() => {
     app.listen(PORT, "0.0.0.0", () => {
-      console.log(` Local:    http://localhost:${PORT}`);
-      console.log(` Network:  http://${localIP}:${PORT}`);
+      console.log(`🚀 Server running on port ${PORT}`);
     });
   })
-  .catch((err) => console.error(" Database Connection Failed:", err));
+  .catch((err) => {
+    console.error("❌ Database Connection Failed:", err);
+    process.exit(1);
+  });
