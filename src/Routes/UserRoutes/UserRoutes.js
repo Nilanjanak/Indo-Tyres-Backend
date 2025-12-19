@@ -24,5 +24,5 @@ UserRouter.use(authenticate);
 UserRouter.get("/me", getCurrentUser);
 UserRouter.patch("/me/update", updateSelf);
 UserRouter.delete("/:id", deleteUser);
-UserRouter.get("/dasboard", authenticate, DashboardData);
+UserRouter.get("/dashboard", authenticate, DashboardData);
 export default UserRouter;
